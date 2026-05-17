@@ -15,5 +15,6 @@
 !/.config.luau
 !/.luaurc.json
 
-# Do NOT track sourcemap
+
 !/sourcemap.json
+!/OLD/**
