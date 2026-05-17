@@ -1,0 +1,6 @@
+{
+  "name": "Hit a luckyblock",
+  "tree": {
+    "$className": "DataModel"
+  }
+}
