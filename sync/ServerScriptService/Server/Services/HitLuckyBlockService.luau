@@ -1,326 +1,322 @@
-local Framework = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
-local HitLuckyBlockService = Framework:CreateService("HitLuckyBlockService")
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
-local Debris = game:GetService("Debris")
 
-function HitLuckyBlockService:Initialize()
-	-- Create shared RemoteEvents so the client can WaitForChild them
-	self.CutsceneEvent = ReplicatedStorage:FindFirstChild("CutsceneEvent") or Instance.new("RemoteEvent")
-	self.CutsceneEvent.Name = "CutsceneEvent"
-	self.CutsceneEvent.Parent = ReplicatedStorage
-	
-	self.BlockLandedEvent = ReplicatedStorage:FindFirstChild("BlockLandedEvent") or Instance.new("RemoteEvent")
-	self.BlockLandedEvent.Name = "BlockLandedEvent"
-	self.BlockLandedEvent.Parent = ReplicatedStorage
-	
-	self.Assets = ReplicatedStorage:WaitForChild("Assets")
-	self.HitLuckyBlockAssets = self.Assets:WaitForChild("HitLuckyBlock")
-	self.BrainrotsFolder = self.Assets:WaitForChild("Brainrots")
-	self.TsunamiWavesFolder = ReplicatedStorage:WaitForChild("VFX"):WaitForChild("TsunamiWaves")
-	self.OpeningVFXTemplate = self.HitLuckyBlockAssets:WaitForChild("OpeningVFX")
-	self.OBVFXTemplate = self.HitLuckyBlockAssets:WaitForChild("OBVFX")
-	
-	self.SafePart = workspace:WaitForChild("Map"):WaitForChild("Safe")
-	
-	self.ROLL_COUNT = 30
-	self.ROLL_TIME = 5
-	self.ROLL_SPEED = 3
-	self.SILHOUETTE_COLOR = Color3.fromRGB(0, 0, 0)
-	self.MORPH_WALK_SPEED = 24
-	self.MORPH_JUMP_POWER = 50
-end
+local Framework = require(ReplicatedStorage.Framework)
 
-local function EmitVFX(parent)
-	for _, e in ipairs(parent:GetDescendants()) do
-		if e:IsA("ParticleEmitter") then
-			e:Emit(e:GetAttribute("EmitCount") or 1)
-		end
-	end
-end
+local HitLuckyBlockService = Framework:CreateService("HitLuckyBlockService")
 
-local function MakeHolder(position)
-	local part = Instance.new("Part")
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanTouch = false
-	part.CanQuery = false
-	part.Transparency = 1
-	part.Size = Vector3.new(1, 1, 1)
-	part.CFrame = CFrame.new(position)
-	part.Parent = workspace
-	return part
-end
+HitLuckyBlockService.Client = {}
 
-function HitLuckyBlockService:CollectCandidates()
-	local candidates = {}
-	for _, brainrotFolder in ipairs(self.BrainrotsFolder:GetChildren()) do
-		if not brainrotFolder:IsA("Folder") then continue end
-		for _, mutation in ipairs(brainrotFolder:GetChildren()) do
-			if mutation:IsA("Model") and mutation:FindFirstChildWhichIsA("BasePart", true) then
-				table.insert(candidates, mutation)
-			end
-		end
-	end
-	return candidates
-end
-
-function HitLuckyBlockService:ApplySilhouette(clone)
-	for _, desc in ipairs(clone:GetDescendants()) do
-		if desc:IsA("SurfaceAppearance") or desc:IsA("Decal") or desc:IsA("Texture") then
-			desc:Destroy()
-		elseif desc:IsA("SpecialMesh") then
-			desc.TextureId = ""
-		elseif desc:IsA("BasePart") and desc.Transparency < 1 then
-			desc.Color = self.SILHOUETTE_COLOR
-			desc.Material = Enum.Material.SmoothPlastic
-			desc.Reflectance = 0
-			if desc:IsA("MeshPart") then
-				desc.TextureID = ""
-			end
-		end
-	end
-end
-
-function HitLuckyBlockService:PrepareClone(template)
-	local clone = template:Clone()
-	clone.Parent = workspace
-	local ok, scale = pcall(function() return clone:GetScale() end)
-	if ok then clone:SetAttribute("_baseScale", scale) end
-	for _, part in ipairs(clone:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.Anchored = true
-			part.CanCollide = false
-			part.CanTouch = false
-			part.CanQuery = false
-		end
-	end
-	return clone
-end
-
-function HitLuckyBlockService:ScaleClone(clone, mult)
-	if not clone or not clone.Parent then return end
-	pcall(function()
-		local base = clone:GetAttribute("_baseScale") or 1
-		clone:ScaleTo(base * mult)
-	end)
-end
-
-function HitLuckyBlockService:PlaceClone(clone, groundPos, facingDir)
-	if not clone or not clone.Parent then return end
-	local ok, boxCFrame, boxSize = pcall(function() return clone:GetBoundingBox() end)
-	if not ok then return end
-	local fd = if facingDir.Magnitude > 0.05 then facingDir.Unit else Vector3.new(0, 0, -1)
-	local centerPos = Vector3.new(groundPos.X, groundPos.Y + boxSize.Y / 2, groundPos.Z)
-	local targetCFrame = CFrame.lookAt(centerPos, centerPos + fd)
-	local delta = targetCFrame * boxCFrame:Inverse()
-	for _, part in ipairs(clone:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.CFrame = delta * part.CFrame
-		end
-	end
-end
-
-function HitLuckyBlockService:MorphPlayer(player, rewardSource, facingDir, groundPos)
+local function getCharacterRoot(player)
 	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not character or not humanoid or not root then return end
 
-	local oldMorph = character:FindFirstChild("BrainrotMorph")
-	if oldMorph then oldMorph:Destroy() end
-
-	for _, desc in ipairs(character:GetDescendants()) do
-		if desc:IsA("BasePart") and desc ~= root then
-			desc.Transparency = 1
-		elseif desc:IsA("Decal") or desc:IsA("Texture") then
-			desc.Transparency = 1
-		end
-	end
-
-	local morph = rewardSource:Clone()
-	morph.Name = "BrainrotMorph"
-	morph.Parent = character
-
-	for _, desc in ipairs(morph:GetDescendants()) do
-		if desc:IsA("Script") or desc:IsA("LocalScript") or desc:IsA("Humanoid") then
-			desc:Destroy()
-		end
-	end
-
-	local fd = Vector3.new(facingDir.X, 0, facingDir.Z)
-	if fd.Magnitude < 0.05 then fd = root.CFrame.LookVector end
-	fd = fd.Unit
-
-	local rootTargetPos = Vector3.new(
-		groundPos.X,
-		groundPos.Y + humanoid.HipHeight + root.Size.Y / 2,
-		groundPos.Z
-	)
-	root.CFrame = CFrame.lookAt(rootTargetPos, rootTargetPos + fd)
-	root.AssemblyLinearVelocity = Vector3.zero
-	root.AssemblyAngularVelocity = Vector3.zero
-
-	local ok, boxCFrame, boxSize = pcall(function() return morph:GetBoundingBox() end)
-	if not ok then return end
-
-	local centerPos = Vector3.new(groundPos.X, groundPos.Y + boxSize.Y / 2, groundPos.Z)
-	local targetCFrame = CFrame.lookAt(centerPos, centerPos + fd)
-	local delta = targetCFrame * boxCFrame:Inverse()
-
-	for _, part in ipairs(morph:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.CFrame = delta * part.CFrame
-			part.Anchored = false
-			part.CanCollide = false
-			part.CanTouch = false
-			part.CanQuery = false
-			part.Massless = true
-			local weld = Instance.new("WeldConstraint")
-			weld.Part0 = root
-			weld.Part1 = part
-			weld.Parent = part
-		end
-	end
-
-	root.Anchored = false
-	humanoid.AutoRotate = true
-	humanoid.WalkSpeed = self.MORPH_WALK_SPEED
-	if humanoid.UseJumpPower then
-		humanoid.JumpPower = self.MORPH_JUMP_POWER
-	else
-		humanoid.JumpHeight = 7.2
-	end
-end
-
-function HitLuckyBlockService:SpawnTsunamiWave(landingPos, flatDirection)
-	local waves = self.TsunamiWavesFolder:GetChildren()
-	if #waves == 0 then return nil end
-	local wave = waves[math.random(1, #waves)]:Clone()
-	wave.Parent = workspace
-
-	local waveRoot = wave:FindFirstChild("Root")
-	if not waveRoot then
-		wave:Destroy()
+	if not character then
 		return nil
 	end
 
-	local _, waveSize = wave:GetBoundingBox()
-	local spawnPos = landingPos + (-flatDirection) * 18
-	spawnPos = Vector3.new(spawnPos.X, landingPos.Y - waveSize.Y - 4, spawnPos.Z)
-	wave:PivotTo(CFrame.lookAt(spawnPos, spawnPos + flatDirection))
-
-	local risePos = Vector3.new(spawnPos.X, landingPos.Y, spawnPos.Z)
-	TweenService:Create(waveRoot, TweenInfo.new(1.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		CFrame = CFrame.lookAt(risePos, risePos + flatDirection)
-	}):Play()
-	task.wait(2.0)
-
-	local moveTarget = landingPos + flatDirection * 80
-	TweenService:Create(waveRoot, TweenInfo.new(6, Enum.EasingStyle.Linear), {
-		CFrame = CFrame.lookAt(moveTarget, moveTarget + flatDirection)
-	}):Play()
-
-	Debris:AddItem(wave, 12)
-	return waveRoot
+	return character:FindFirstChild("HumanoidRootPart")
 end
 
-function HitLuckyBlockService:DoReveal(player, landingPos, flatDirection)
-	local candidates = self:CollectCandidates()
-	if #candidates == 0 then
-		self.CutsceneEvent:FireClient(player, "Release", nil)
-		return
+local function isVector3(value)
+	return typeof(value) == "Vector3"
+end
+
+local function sanitizeDirection(direction, fallback)
+	if not isVector3(direction) or direction.Magnitude < 0.001 then
+		return fallback
 	end
 
-	local finalReward = candidates[math.random(1, #candidates)]
-	local groundPos = landingPos
+	return direction.Unit
+end
 
-	local openingHolder = MakeHolder(groundPos)
-	local openingVFX = self.OpeningVFXTemplate:Clone()
-	openingVFX.Parent = openingHolder
-	for _, e in ipairs(openingVFX:GetDescendants()) do
-		if e:IsA("ParticleEmitter") then e.Enabled = true end
-	end
-	EmitVFX(openingVFX)
+function HitLuckyBlockService:Initialize()
+	self.Config = Framework.Config
+	self.EconomyMath = Framework.Utils.EconomyMath
+	self.KickCalculator = Framework.Utils.KickCalculator
 
-	self.CutsceneEvent:FireClient(player, "FocusReward", groundPos)
-	task.wait(0.6)
-	self.CutsceneEvent:FireClient(player, "FocusOpening", groundPos)
-	task.wait(0.35)
-
-	local activeClone = nil
-	for i = 1, self.ROLL_COUNT do
-		if activeClone and activeClone.Parent then
-			activeClone:Destroy()
-			activeClone = nil
-		end
-
-		local isFinal = i == self.ROLL_COUNT
-		local pick = if isFinal then finalReward else candidates[math.random(1, #candidates)]
-		activeClone = self:PrepareClone(pick)
-		if not isFinal then self:ApplySilhouette(activeClone) end
-
-		local alpha = i / self.ROLL_COUNT
-		local baseStep = self.ROLL_TIME / math.max(self.ROLL_COUNT - 1, 1)
-		local stepDuration = if isFinal then 1
-			else math.clamp((baseStep * (0.6 + alpha * 0.8)) / self.ROLL_SPEED, 0.04, 0.55)
-
-		local stepStart = os.clock()
-		while activeClone and activeClone.Parent and os.clock() - stepStart < stepDuration do
-			local t = math.clamp((os.clock() - stepStart) / stepDuration, 0, 1)
-			local popScale = 0.5 + 0.85 * math.sin(t * math.pi)
-			local lift = math.sin(t * math.pi) * 0.5
-			self:ScaleClone(activeClone, popScale)
-			self:PlaceClone(activeClone, groundPos + Vector3.new(0, lift, 0), flatDirection)
-			RunService.Heartbeat:Wait()
-		end
-	end
-
-	if openingVFX and openingVFX.Parent then
-		for _, e in ipairs(openingVFX:GetDescendants()) do
-			if e:IsA("ParticleEmitter") then e.Enabled = false end
-		end
-		Debris:AddItem(openingHolder, 2)
-	end
-
-	if activeClone and activeClone.Parent then
-		self:ScaleClone(activeClone, 1)
-		self:PlaceClone(activeClone, groundPos, flatDirection)
-
-		local obvfxHolder = MakeHolder(groundPos + Vector3.new(0, 1, 0))
-		local obvfx = self.OBVFXTemplate:Clone()
-		obvfx.Parent = obvfxHolder
-		EmitVFX(obvfx)
-		Debris:AddItem(obvfxHolder, 3)
-
-		task.spawn(function()
-			local waveRoot = self:SpawnTsunamiWave(landingPos, flatDirection)
-			if waveRoot then
-				self.CutsceneEvent:FireClient(player, "FocusTsunami", waveRoot)
-				task.wait(2.5)
-			end
-
-			if activeClone and activeClone.Parent then
-				self:MorphPlayer(player, activeClone, -flatDirection, groundPos)
-				activeClone:Destroy()
-			end
-
-			self.CutsceneEvent:FireClient(player, "Release", nil)
-		end)
-	else
-		self.CutsceneEvent:FireClient(player, "Release", nil)
-	end
+	self._cooldowns = {}
+	self._busyPlayers = {}
+	self._candidates = {}
+	self._candidateConnections = {}
+	self._rng = Random.new()
 end
 
 function HitLuckyBlockService:Start()
-	self.BlockLandedEvent.OnServerEvent:Connect(function(player, landingPos, flatDirection)
-		if typeof(landingPos) ~= "Vector3" then return end
-		if typeof(flatDirection) ~= "Vector3" then return end
-		task.spawn(function() self:DoReveal(player, landingPos, flatDirection) end)
+	self.DataService = Framework:GetService("DataService")
+	self.HitLuckyBlockVisualController = Framework:GetController("HitLuckyBlockVisualController")
+	self:_bindCandidateCache()
+
+	Players.PlayerRemoving:Connect(function(player)
+		self._cooldowns[player] = nil
+		self._busyPlayers[player] = nil
 	end)
+end
+
+function HitLuckyBlockService:_getBrainrotAssetsFolder()
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+
+	if not assets then
+		return nil
+	end
+
+	return assets:FindFirstChild("Brainrots")
+end
+
+function HitLuckyBlockService:_disconnectCandidateCache()
+	for _, connection in ipairs(self._candidateConnections) do
+		connection:Disconnect()
+	end
+
+	table.clear(self._candidateConnections)
+end
+
+function HitLuckyBlockService:_rebuildCandidateCache()
+	local brainrotsFolder = self:_getBrainrotAssetsFolder()
+	local candidates = {}
+
+	if not brainrotsFolder then
+		self._candidates = candidates
+		return
+	end
+
+	for _, brainrotFolder in brainrotsFolder:GetChildren() do
+		if not brainrotFolder:IsA("Folder") then
+			continue
+		end
+
+		for _, mutationOrModel in brainrotFolder:GetChildren() do
+			if mutationOrModel:IsA("Model") or mutationOrModel:IsA("BasePart") then
+				table.insert(candidates, {
+					Brainrot = brainrotFolder.Name,
+					Mutation = mutationOrModel.Name,
+					Template = mutationOrModel,
+				})
+			elseif mutationOrModel:IsA("Folder") then
+				local template = mutationOrModel:FindFirstChildWhichIsA("Model") or mutationOrModel:FindFirstChildWhichIsA("BasePart")
+
+				if template then
+					table.insert(candidates, {
+						Brainrot = brainrotFolder.Name,
+						Mutation = mutationOrModel.Name,
+						Template = template,
+					})
+				end
+			end
+		end
+	end
+
+	self._candidates = candidates
+end
+
+function HitLuckyBlockService:_bindCandidateCache()
+	local brainrotsFolder = self:_getBrainrotAssetsFolder()
+
+	self:_disconnectCandidateCache()
+	self:_rebuildCandidateCache()
+
+	if not brainrotsFolder then
+		return
+	end
+
+	local function watchBrainrotFolder(brainrotFolder)
+		if not brainrotFolder:IsA("Folder") then
+			return
+		end
+
+		table.insert(self._candidateConnections, brainrotFolder.ChildAdded:Connect(function()
+			self:_rebuildCandidateCache()
+		end))
+
+		table.insert(self._candidateConnections, brainrotFolder.ChildRemoved:Connect(function()
+			self:_rebuildCandidateCache()
+		end))
+	end
+
+	for _, brainrotFolder in ipairs(brainrotsFolder:GetChildren()) do
+		watchBrainrotFolder(brainrotFolder)
+	end
+
+	table.insert(self._candidateConnections, brainrotsFolder.ChildAdded:Connect(function(child)
+		watchBrainrotFolder(child)
+		self:_rebuildCandidateCache()
+	end))
+
+	table.insert(self._candidateConnections, brainrotsFolder.ChildRemoved:Connect(function()
+		self:_rebuildCandidateCache()
+	end))
+end
+
+function HitLuckyBlockService:_chooseCandidate()
+	local candidates = self._candidates
+
+	if #candidates == 0 then
+		return nil
+	end
+
+	return candidates[self._rng:NextInteger(1, #candidates)]
+end
+
+function HitLuckyBlockService:_getLuckyBlockConfig()
+	return self.Config.LuckyBlock or (self.Config.Shared and self.Config.Shared.LuckyBlock)
+end
+
+function HitLuckyBlockService:_getEconomyConfig()
+	return self.Config.Economy or (self.Config.Shared and self.Config.Shared.Economy)
+end
+
+function HitLuckyBlockService:_isOnCooldown(player)
+	local now = os.clock()
+	local cooldown = self:_getLuckyBlockConfig().HitCooldown
+	local nextAllowed = self._cooldowns[player] or 0
+
+	if now < nextAllowed then
+		return true, nextAllowed - now
+	end
+
+	self._cooldowns[player] = now + cooldown
+
+	return false, 0
+end
+
+function HitLuckyBlockService:_setBusy(player, busy)
+	if busy then
+		self._busyPlayers[player] = true
+	else
+		self._busyPlayers[player] = nil
+	end
+end
+
+function HitLuckyBlockService:_getSafeOriginAndDirection(player, clientOrigin, clientDirection)
+	local root = getCharacterRoot(player)
+
+	if not root then
+		return nil, nil, "NoCharacter"
+	end
+
+	local origin = root.Position + Vector3.yAxis * 2
+
+	if isVector3(clientOrigin) then
+		local maxOffset = self:_getLuckyBlockConfig().MaxAimDistanceFromCharacter
+
+		if (clientOrigin - root.Position).Magnitude <= maxOffset then
+			origin = clientOrigin
+		end
+	end
+
+	local direction = sanitizeDirection(clientDirection, root.CFrame.LookVector)
+
+	return origin, direction, nil
+end
+
+function HitLuckyBlockService:_playFlyingVisual(player, candidate, flight)
+	if not candidate then
+		return
+	end
+
+	if not self.HitLuckyBlockVisualController then
+		return
+	end
+
+	self.HitLuckyBlockVisualController.Server.Fire.PlayFlight(self.HitLuckyBlockVisualController, player, {
+		Brainrot = candidate.Brainrot,
+		Mutation = candidate.Mutation,
+		StartPosition = flight.StartPosition,
+		TargetPosition = flight.TargetPosition,
+		ControlPosition = flight.ControlPosition,
+		Duration = self:_getLuckyBlockConfig().Flight.Duration,
+		SpinSpeed = self:_getLuckyBlockConfig().Flight.SpinSpeed,
+		VisualLifetime = self:_getLuckyBlockConfig().VisualLifetime,
+	})
+end
+
+function HitLuckyBlockService:HandleHit(player, clientOrigin, clientDirection)
+	if self._busyPlayers[player] then
+		return {
+			Ok = false,
+			Reason = "Busy",
+		}
+	end
+
+	local onCooldown, remaining = self:_isOnCooldown(player)
+
+	if onCooldown then
+		return {
+			Ok = false,
+			Reason = "Cooldown",
+			Remaining = remaining,
+		}
+	end
+
+	self:_setBusy(player, true)
+
+	local profile = self.DataService:GetProfile(player)
+
+	if not profile then
+		self:_setBusy(player, false)
+		return {
+			Ok = false,
+			Reason = "DataNotLoaded",
+		}
+	end
+
+	local origin, direction, originError = self:_getSafeOriginAndDirection(player, clientOrigin, clientDirection)
+
+	if originError then
+		self:_setBusy(player, false)
+		return {
+			Ok = false,
+			Reason = originError,
+		}
+	end
+
+	local data = profile.Data
+	local economy = self:_getEconomyConfig()
+	local luckyBlockConfig = self:_getLuckyBlockConfig()
+
+	local kickPower = self.KickCalculator.GetPowerFromData(economy, data)
+	local cashMultiplier = self.EconomyMath.GetCashMultiplier(economy, data.Rebirths or 0)
+	local cashReward = self.KickCalculator.GetCashReward(economy, kickPower, cashMultiplier)
+	local powerGain = self.KickCalculator.GetPowerGain(economy)
+
+	local flight = self.KickCalculator.GetFlight(economy, origin, direction, kickPower)
+	local candidate = self:_chooseCandidate()
+
+	self.DataService:AddCash(player, cashReward)
+	self.DataService:AddKickPower(player, powerGain)
+
+	self:_playFlyingVisual(player, candidate, flight)
+
+	task.delay(luckyBlockConfig.Flight.Duration, function()
+		if player.Parent then
+			self:_setBusy(player, false)
+		end
+	end)
+
+	return {
+		Ok = true,
+
+		Reward = cashReward,
+		PowerGain = powerGain,
+		KickPower = kickPower + powerGain,
+
+		Flight = {
+			StartPosition = flight.StartPosition,
+			TargetPosition = flight.TargetPosition,
+			ControlPosition = flight.ControlPosition,
+			Distance = flight.Distance,
+			ArcHeight = flight.ArcHeight,
+			Duration = luckyBlockConfig.Flight.Duration,
+		},
+
+		Brainrot = if candidate then {
+			Name = candidate.Brainrot,
+			Mutation = candidate.Mutation,
+		} else nil,
+	}
+end
+
+function HitLuckyBlockService.Client:Hit(player, clientOrigin, clientDirection)
+	return HitLuckyBlockService:HandleHit(player, clientOrigin, clientDirection)
 end
 
 return HitLuckyBlockService

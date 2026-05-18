@@ -21,12 +21,19 @@ function NextWeatherController:Start()
 	
 	local FormatUtil = Framework.Utils.FormatUtil
 	
-	local nextWeatherGui = PlayerGui:WaitForChild("HUD"):WaitForChild("RightBuffs"):WaitForChild("NextEvent")
-	local timerLabel = nextWeatherGui:WaitForChild("Timer")
-	
-	local nextWeatherTime = ReplicatedStorage:WaitForChild("NextWeatherTime")
-	local activeWeathers = ReplicatedStorage:WaitForChild("ActiveWeathers")
-	local activeEvents = ReplicatedStorage:WaitForChild("ActiveEvents")
+	local hud = PlayerGui:FindFirstChild("HUD")
+	local rightBuffs = hud and hud:FindFirstChild("RightBuffs")
+	local nextWeatherGui = rightBuffs and rightBuffs:FindFirstChild("NextEvent")
+	local timerLabel = nextWeatherGui and nextWeatherGui:FindFirstChild("Timer")
+
+	local nextWeatherTime = ReplicatedStorage:FindFirstChild("NextWeatherTime")
+	local activeWeathers = ReplicatedStorage:FindFirstChild("ActiveWeathers")
+	local activeEvents = ReplicatedStorage:FindFirstChild("ActiveEvents")
+
+	if not (nextWeatherGui and timerLabel and nextWeatherTime and activeWeathers and activeEvents) then
+		warn("[NextWeatherController] Weather UI/state not found, skipping.")
+		return
+	end
 	
 	local function updateVisibilityAndText(timeVal)
 		local hasSpecialEvent = false

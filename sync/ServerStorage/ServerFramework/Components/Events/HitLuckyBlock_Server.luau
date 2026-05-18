@@ -1,7 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
 
 -- Create shared RemoteEvents so the client can WaitForChild them
@@ -31,8 +30,11 @@ local ROLL_SPEED = 3
 local SILHOUETTE_COLOR = Color3.fromRGB(0, 0, 0)
 local MORPH_WALK_SPEED = 24
 local MORPH_JUMP_POWER = 50
+local REVEAL_VISUAL_DURATION = (ROLL_TIME / ROLL_SPEED) + 1
 
 --< Helpers
+local RewardCandidates = {}
+local CandidateConnections = {}
 
 local function EmitVFX(parent)
 	for _, e in ipairs(parent:GetDescendants()) do
@@ -55,17 +57,77 @@ local function MakeHolder(position)
 	return part
 end
 
-local function CollectCandidates()
+local function DisconnectCandidateCache()
+	for _, connection in ipairs(CandidateConnections) do
+		connection:Disconnect()
+	end
+
+	table.clear(CandidateConnections)
+end
+
+local function RebuildRewardCandidates()
 	local candidates = {}
+
 	for _, brainrotFolder in ipairs(BrainrotsFolder:GetChildren()) do
 		if not brainrotFolder:IsA("Folder") then continue end
 		for _, mutation in ipairs(brainrotFolder:GetChildren()) do
 			if mutation:IsA("Model") and mutation:FindFirstChildWhichIsA("BasePart", true) then
-				table.insert(candidates, mutation)
+				table.insert(candidates, {
+					instance = mutation,
+					brainrot = brainrotFolder.Name,
+					mutation = mutation.Name,
+				})
 			end
 		end
 	end
-	return candidates
+
+	RewardCandidates = candidates
+end
+
+local function BindRewardCandidateCache()
+	DisconnectCandidateCache()
+	RebuildRewardCandidates()
+
+	local function watchBrainrotFolder(brainrotFolder)
+		if not brainrotFolder:IsA("Folder") then
+			return
+		end
+
+		table.insert(CandidateConnections, brainrotFolder.ChildAdded:Connect(RebuildRewardCandidates))
+		table.insert(CandidateConnections, brainrotFolder.ChildRemoved:Connect(RebuildRewardCandidates))
+	end
+
+	for _, brainrotFolder in ipairs(BrainrotsFolder:GetChildren()) do
+		watchBrainrotFolder(brainrotFolder)
+	end
+
+	table.insert(CandidateConnections, BrainrotsFolder.ChildAdded:Connect(function(child)
+		watchBrainrotFolder(child)
+		RebuildRewardCandidates()
+	end))
+
+	table.insert(CandidateConnections, BrainrotsFolder.ChildRemoved:Connect(RebuildRewardCandidates))
+end
+
+local function BuildRevealPayload(candidates, finalReward, groundPos, flatDirection)
+	local names = table.create(math.min(#candidates, ROLL_COUNT))
+
+	for index = 1, math.min(#candidates, ROLL_COUNT) do
+		local candidate = candidates[index]
+		table.insert(names, {
+			Brainrot = candidate.brainrot,
+			Mutation = candidate.mutation,
+		})
+	end
+
+	return {
+		FinalBrainrot = finalReward.brainrot,
+		FinalMutation = finalReward.mutation,
+		CandidateNames = names,
+		GroundPosition = groundPos,
+		Direction = flatDirection,
+		Duration = REVEAL_VISUAL_DURATION,
+	}
 end
 
 local function ApplySilhouette(clone)
@@ -232,7 +294,7 @@ local function SpawnTsunamiWave(landingPos, flatDirection)
 end
 
 local function DoReveal(player, landingPos, flatDirection)
-	local candidates = CollectCandidates()
+	local candidates = RewardCandidates
 	if #candidates == 0 then
 		warn("[HitLuckyBlock_Server] No brainrot candidates")
 		CutsceneEvent:FireClient(player, "Release", nil)
@@ -256,34 +318,10 @@ local function DoReveal(player, landingPos, flatDirection)
 	CutsceneEvent:FireClient(player, "FocusOpening", groundPos)
 	task.wait(0.35)
 
-	-- Slot machine
-	local activeClone = nil
-	for i = 1, ROLL_COUNT do
-		if activeClone and activeClone.Parent then
-			activeClone:Destroy()
-			activeClone = nil
-		end
+	CutsceneEvent:FireClient(player, "RewardReveal", BuildRevealPayload(candidates, finalReward, groundPos, flatDirection))
+	task.wait(REVEAL_VISUAL_DURATION)
 
-		local isFinal = i == ROLL_COUNT
-		local pick = if isFinal then finalReward else candidates[math.random(1, #candidates)]
-		activeClone = PrepareClone(pick)
-		if not isFinal then ApplySilhouette(activeClone) end
-
-		local alpha = i / ROLL_COUNT
-		local baseStep = ROLL_TIME / math.max(ROLL_COUNT - 1, 1)
-		local stepDuration = if isFinal then 1
-			else math.clamp((baseStep * (0.6 + alpha * 0.8)) / ROLL_SPEED, 0.04, 0.55)
-
-		local stepStart = os.clock()
-		while activeClone and activeClone.Parent and os.clock() - stepStart < stepDuration do
-			local t = math.clamp((os.clock() - stepStart) / stepDuration, 0, 1)
-			local popScale = 0.5 + 0.85 * math.sin(t * math.pi)
-			local lift = math.sin(t * math.pi) * 0.5
-			ScaleClone(activeClone, popScale)
-			PlaceClone(activeClone, groundPos + Vector3.new(0, lift, 0), flatDirection)
-			RunService.Heartbeat:Wait()
-		end
-	end
+	local activeClone = PrepareClone(finalReward.instance)
 
 	-- Stop opening VFX
 	if openingVFX and openingVFX.Parent then
@@ -325,6 +363,8 @@ local function DoReveal(player, landingPos, flatDirection)
 end
 
 return function()
+	BindRewardCandidateCache()
+
 	BlockLandedEvent.OnServerEvent:Connect(function(player, landingPos, flatDirection)
 		if typeof(landingPos) ~= "Vector3" then return end
 		if typeof(flatDirection) ~= "Vector3" then return end

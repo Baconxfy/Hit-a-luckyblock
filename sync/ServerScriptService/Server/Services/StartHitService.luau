@@ -1,38 +1,32 @@
-local Framework = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Framework = require(ReplicatedStorage.Framework)
+
 local StartHitService = Framework:CreateService("StartHitService")
 
+StartHitService.Client = {}
+
 function StartHitService:Initialize()
-	self.KickCalculator = Framework.Utilities.KickCalculator
-	self.Blink = require(game:GetService("ReplicatedStorage"):WaitForChild("Blink"):WaitForChild("Server"))
-	self.DataService = Framework:GetService("DataService")
-	
-	self.MapCoreFolder = workspace:WaitForChild("MapCore")
-	self.LandingArea = self.MapCoreFolder:WaitForChild("LandingArea")
+	self.HitLuckyBlockService = nil
 end
 
 function StartHitService:Start()
-	self.Blink.StartHit.On(function(Player: Player, BarValue: number) 
-		BarValue = math.clamp(BarValue or 0, 0, 1)
+	self.HitLuckyBlockService = Framework:GetService("HitLuckyBlockService")
+end
 
-		local profile = self.DataService:GetProfile(Player)
-		if not profile then return end
+function StartHitService:StartHit(player, clientOrigin, clientDirection)
+	if not self.HitLuckyBlockService then
+		return {
+			Ok = false,
+			Reason = "HitServiceNotReady",
+		}
+	end
 
-		-- HitPower scales with the Speed upgrade: base 1 + 0.1 per upgrade level
-		local hitPower = 1 + (profile.Data.Upgrades.Speed * 0.1)
+	return self.HitLuckyBlockService:HandleHit(player, clientOrigin, clientDirection)
+end
 
-		local Character = Player.Character
-		if not Character then return end
-
-		local RootPart = Character:FindFirstChild("HumanoidRootPart")
-		if not RootPart then return end
-
-		local Result = self.KickCalculator.Compute(hitPower, BarValue, RootPart, self.LandingArea)
-
-		self.Blink.HitInfo.FireAll({
-			Player = Player,
-			Result = Result,
-		})
-	end)
+function StartHitService.Client:StartHit(player, clientOrigin, clientDirection)
+	return StartHitService:StartHit(player, clientOrigin, clientDirection)
 end
 
 return StartHitService

@@ -4,7 +4,8 @@ repeat
 until RS:WaitForChild('Client'):WaitForChild('CanLoad').Value == true
 
 local Framework: any = require(RS.Framework :: ModuleScript)
-local Marshal = Framework.Utils.NetworkMarshal
+
+local Marshal    = require(RS.Shared.Utils.NetworkMarshal :: ModuleScript)
 
 
 
