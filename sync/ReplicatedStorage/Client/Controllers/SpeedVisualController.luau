@@ -1,10 +1,11 @@
-local Framework = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
-local SpeedVisualController = Framework:CreateController("SpeedVisualController")
-
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local function getEquippedTool(player)
+local Framework = require(ReplicatedStorage:WaitForChild("Framework"))
+
+local SpeedVisualController = Framework:CreateController("SpeedVisualController")
+
+local function getEquippedTool(player: Player): Tool?
 	local character = player.Character
 
 	if not character then
@@ -20,11 +21,74 @@ local function getEquippedTool(player)
 	return nil
 end
 
+local function findSpeedLabel(playerGui: PlayerGui): TextLabel?
+	local hud = playerGui:FindFirstChild("HUD")
+
+	if hud then
+		local bottomLeft = hud:FindFirstChild("BottomLeft")
+		local currency = bottomLeft and bottomLeft:FindFirstChild("Currency")
+		local power = currency and currency:FindFirstChild("Power")
+		local speed = power and power:FindFirstChild("Speed")
+		local speedLabel = speed and speed:FindFirstChild("SpeedLabel")
+
+		if speedLabel and speedLabel:IsA("TextLabel") then
+			return speedLabel
+		end
+	end
+
+	local fallback = playerGui:FindFirstChild("SpeedLabel", true)
+
+	if fallback and fallback:IsA("TextLabel") then
+		return fallback
+	end
+
+	return nil
+end
+
+local function getSpeedFromData(data)
+	if type(data) ~= "table" then
+		return 0
+	end
+
+	if tonumber(data.RunSpeed) then
+		return tonumber(data.RunSpeed)
+	end
+
+	local upgrades = data.Upgrades
+
+	if type(upgrades) == "table" then
+		return tonumber(upgrades.RunSpeed)
+			or tonumber(upgrades.Speed)
+			or tonumber(upgrades.MovementSpeed)
+			or 0
+	end
+
+	return 0
+end
+
+local function getSpeedMultiplierFromTool(tool: Tool?): number
+	if not tool then
+		return 1
+	end
+
+	if tool:GetAttribute("GearType") ~= "SpeedCoil" then
+		return 1
+	end
+
+	local multiplier = tool:GetAttribute("SpeedMultiplier")
+		or tool:GetAttribute("speedBoost")
+		or tool:GetAttribute("SpeedBoost")
+
+	if tonumber(multiplier) then
+		return tonumber(multiplier)
+	end
+
+	return 1
+end
+
 function SpeedVisualController:Initialize()
-	pcall(function()
-		self.ReplicaController = Framework:GetController("ReplicaController")
-		self.EquipController = Framework:GetController("EquipController")
-	end)
+	self.ReplicaController = Framework:GetController("ReplicaController")
+	self._connections = {}
 end
 
 function SpeedVisualController:Start()
@@ -33,78 +97,69 @@ function SpeedVisualController:Start()
 		return
 	end
 
-	local LocalPlayer = Players.LocalPlayer
-	local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+	local localPlayer = Players.LocalPlayer
+	local playerGui = localPlayer:WaitForChild("PlayerGui")
 
-	local configs = ReplicatedStorage:FindFirstChild("Configs")
-	local gearsConfigModule = configs and configs:FindFirstChild("GearsConfig")
-
-	if not gearsConfigModule then
-		warn("[SpeedVisualController] GearsConfig not found, skipping.")
-		return
-	end
-
-	local gearsConfig
-	local gearsOk = pcall(function()
-		gearsConfig = require(gearsConfigModule)
-	end)
-
-	if not gearsOk then
-		warn("[SpeedVisualController] GearsConfig failed to load, skipping.")
-		return
-	end
-
-	local hud = PlayerGui:FindFirstChild("HUD")
-	local bottomLeft = hud and hud:FindFirstChild("BottomLeft")
-	local currency = bottomLeft and bottomLeft:FindFirstChild("Currency")
-	local power = currency and currency:FindFirstChild("Power")
-	local speed = power and power:FindFirstChild("Speed")
-	local speedLabel = speed and speed:FindFirstChild("SpeedLabel")
+	local speedLabel = findSpeedLabel(playerGui)
 
 	if not speedLabel then
 		warn("[SpeedVisualController] SpeedLabel not found, skipping.")
 		return
 	end
 
-	local function updateSpeed()
-		local data = self.ReplicaController:GetPlayerData()
-		local speed = (data and data.Upgrades and data.Upgrades.MovementSpeed) or 0
+	local function setText(text)
+		speedLabel.Text = text
 
-		local tool = getEquippedTool(LocalPlayer)
-		if tool and tool:GetAttribute("GearType") == "SpeedCoil" then
-			local gearId = tool:GetAttribute("GearId")
-			if gearsConfig.GEARS and gearsConfig.GEARS[gearId] then
-				speed = speed * gearsConfig.GEARS[gearId].stats.speedBoost
-			end
-		end
-		
-		speedLabel.Text = string.format("Speed: %d", math.round(speed))
-		local innerSpeed = speedLabel:FindFirstChild("Speed")
-		if innerSpeed then
-			innerSpeed.Text = speedLabel.Text
+		local innerSpeedLabel = speedLabel:FindFirstChild("Speed")
+
+		if innerSpeedLabel and innerSpeedLabel:IsA("TextLabel") then
+			innerSpeedLabel.Text = text
 		end
 	end
-	
-	task.spawn(function()
-		updateSpeed()
-	end)
+
+	local function updateSpeed()
+		local data = self.ReplicaController:GetPlayerData()
+		local baseSpeed = getSpeedFromData(data)
+		local multiplier = getSpeedMultiplierFromTool(getEquippedTool(localPlayer))
+		local finalSpeed = math.round(baseSpeed * multiplier)
+
+		setText(`Speed: {finalSpeed}`)
+	end
+
+	local function connectCharacter(character: Model)
+		table.insert(self._connections, character.ChildAdded:Connect(function()
+			updateSpeed()
+		end))
+
+		table.insert(self._connections, character.ChildRemoved:Connect(function()
+			updateSpeed()
+		end))
+
+		task.defer(updateSpeed)
+	end
+
+	if localPlayer.Character then
+		connectCharacter(localPlayer.Character)
+	end
+
+	table.insert(self._connections, localPlayer.CharacterAdded:Connect(connectCharacter))
 
 	local replica = self.ReplicaController:GetReplica()
+
 	if replica and replica.OnSet then
+		replica:OnSet({ "RunSpeed" }, updateSpeed)
 		replica:OnSet({ "Upgrades" }, updateSpeed)
 	end
 
-	if self.EquipController and self.EquipController.ToolAdded then
-		self.EquipController.ToolAdded:Connect(updateSpeed)
+	task.defer(updateSpeed)
+end
+
+function SpeedVisualController:CleanUp()
+	for _, connection in ipairs(self._connections) do
+		connection:Disconnect()
 	end
 
-	if self.EquipController and self.EquipController.ToolRemoved then
-		self.EquipController.ToolRemoved:Connect(updateSpeed)
-	end
-
-	LocalPlayer.CharacterAdded:Connect(function()
-		task.defer(updateSpeed)
-	end)
+	table.clear(self._connections)
 end
 
 return SpeedVisualController

@@ -174,7 +174,6 @@ function HitGUIController:StartCharge()
 	)
 
 	self._barTween:Play()
-
 	self:_playHoldEffects()
 
 	task.delay(0.08, function()
@@ -187,7 +186,9 @@ function HitGUIController:StartCharge()
 				return
 			end
 
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch
+			then
 				self:FinishCharge()
 			end
 		end)
@@ -229,14 +230,8 @@ function HitGUIController:FinishCharge()
 
 	self:_stopHoldEffects(true)
 
-	local origin, direction = self:_getAimRay()
-
-	if not origin or not direction then
-		origin, direction = self:_getCharacterAim()
-	end
-
 	local ok, result = pcall(function()
-		return self.StartHitService:StartHit(origin, direction, barValue)
+		return self.StartHitService:StartHit(barValue)
 	end)
 
 	if not ok then
@@ -250,30 +245,6 @@ function HitGUIController:FinishCharge()
 	task.delay(1.75, function()
 		self:_resetAfterHit()
 	end)
-end
-
-function HitGUIController:_getAimRay()
-	local camera = workspace.CurrentCamera
-
-	if not camera then
-		return nil, nil
-	end
-
-	local viewport = camera.ViewportSize
-	local ray = camera:ViewportPointToRay(viewport.X * 0.5, viewport.Y * 0.5)
-
-	return ray.Origin, ray.Direction
-end
-
-function HitGUIController:_getCharacterAim()
-	local character = self.Player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-
-	if not root then
-		return nil, nil
-	end
-
-	return root.Position + Vector3.yAxis * 2, root.CFrame.LookVector
 end
 
 function HitGUIController:_getHitType(barValue: number): string
@@ -321,7 +292,10 @@ function HitGUIController:_playHoldEffects()
 
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-	local animations = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("HitLuckyBlock"):FindFirstChild("Animations")
+
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local hitLuckyBlockAssets = assets and assets:FindFirstChild("HitLuckyBlock")
+	local animations = hitLuckyBlockAssets and hitLuckyBlockAssets:FindFirstChild("Animations")
 	local holdAnim = animations and animations:FindFirstChild("HoldAnim")
 
 	if animator and holdAnim and holdAnim:IsA("Animation") then
