@@ -1,89 +1,51 @@
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Framework = require(ReplicatedStorage:WaitForChild("Framework"))
-
+local Framework = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
 local GuiZonesController = Framework:CreateController("GuiZonesController")
 
-local function getZonePlus()
-	local packages = ReplicatedStorage:WaitForChild("Packages")
-	return require(packages:WaitForChild("ZonePlus"))
-end
-
-function GuiZonesController:Initialize()
-	self.Player = Players.LocalPlayer
-	self.GuiController = Framework.Utils.GuiController
-	self.ZonePlus = getZonePlus()
-	self._connections = {}
-	self._zones = {}
-end
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GuiController =
+	require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Utils"):WaitForChild("GuiController"))
+local ZonePlus = require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("ZonePlus"))
 
 function GuiZonesController:Start()
-	local zonesFolder = workspace:WaitForChild("Zones", 120)
-	if not zonesFolder then
-		warn("[GuiZonesController] Missing workspace.Zones")
+	local ZonesFolder = workspace:WaitForChild("Zones", 120)
+	if not ZonesFolder then
 		return
 	end
 
-	self:_bindGuiZone(zonesFolder, "ShowWeightUI", "WeightUI")
-	self:_bindGuiZone(zonesFolder, "ShowSpeedUpgrades", "SpeedUpgrades")
-end
+	local ShowWeightUIPart = ZonesFolder:WaitForChild("ShowWeightUI", 10)
+	local ShowSpeedUpgradesPart = ZonesFolder:WaitForChild("ShowSpeedUpgrades", 10)
 
-function GuiZonesController:_getScreenGuiWhenAvailable(guiName, callback)
-	local playerGui = self.Player:WaitForChild("PlayerGui")
-
-	local existingGui = self.GuiController:GetGui(guiName)
-	if existingGui then
-		callback(existingGui)
-		return
+	if ShowWeightUIPart then
+		local ShowWeightUIZone = ZonePlus.new(ShowWeightUIPart)
+		local WeightUI = GuiController:GetGui("WeightUI")
+		if WeightUI then
+			local WeightUIMainFrame = GuiController:GetMainFrame(WeightUI)
+			ShowWeightUIZone.localPlayerEntered:Connect(function()
+				GuiController:ToggleMainFrame(WeightUIMainFrame)
+			end)
+			ShowWeightUIZone.localPlayerExited:Connect(function()
+				if GuiController.CurrentMainFrame == WeightUIMainFrame then
+					GuiController:ToggleMainFrame(WeightUIMainFrame)
+				end
+			end)
+		end
 	end
 
-	warn(`[GuiZonesController] Waiting for ScreenGui: {guiName}`)
-
-	local connection
-	connection = playerGui.ChildAdded:Connect(function(child)
-		if child.Name ~= guiName or not child:IsA("ScreenGui") then
-			return
+	if ShowSpeedUpgradesPart then
+		local ShowRunUpgradesZone = ZonePlus.new(ShowSpeedUpgradesPart)
+		local SpeedUpgrades = GuiController:GetGui("SpeedUpgrades")
+		if SpeedUpgrades then
+			local SpeedUpgradesMainFrame = GuiController:GetMainFrame(SpeedUpgrades)
+			ShowRunUpgradesZone.localPlayerEntered:Connect(function()
+				GuiController:ToggleMainFrame(SpeedUpgradesMainFrame)
+			end)
+			ShowRunUpgradesZone.localPlayerExited:Connect(function()
+				if GuiController.CurrentMainFrame == SpeedUpgradesMainFrame then
+					GuiController:ToggleMainFrame(SpeedUpgradesMainFrame)
+				end
+			end)
 		end
-
-		if connection then
-			connection:Disconnect()
-		end
-
-		self.GuiController:RegisterGui(child)
-		callback(child)
-	end)
-
-	table.insert(self._connections, connection)
-end
-
-function GuiZonesController:_bindGuiZone(zonesFolder, zonePartName, guiName)
-	local zonePart = zonesFolder:WaitForChild(zonePartName, 10)
-	if not zonePart then
-		warn(`[GuiZonesController] Missing zone part: {zonePartName}`)
-		return
 	end
-
-	self:_getScreenGuiWhenAvailable(guiName, function(screenGui)
-		local mainFrame = self.GuiController:GetMainFrame(screenGui)
-		if not mainFrame then
-			warn(`[GuiZonesController] Missing main frame for gui: {guiName}`)
-			return
-		end
-
-		local zone = self.ZonePlus.new(zonePart)
-		table.insert(self._zones, zone)
-
-		zone.localPlayerEntered:Connect(function()
-			self.GuiController:OpenMainFrame(mainFrame)
-		end)
-
-		zone.localPlayerExited:Connect(function()
-			if self.GuiController.CurrentMainFrame == mainFrame then
-				self.GuiController:CloseMainFrame(mainFrame)
-			end
-		end)
-	end)
 end
 
 return GuiZonesController

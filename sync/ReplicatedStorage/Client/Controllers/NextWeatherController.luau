@@ -19,19 +19,24 @@ function NextWeatherController:Start()
 	local LocalPlayer = Players.LocalPlayer
 	local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 	
-	local FormatUtil = Framework.Utils.FormatUtil
+	local nextWeatherGui = PlayerGui:WaitForChild("HUD"):WaitForChild("RightBuffs"):WaitForChild("NextEvent")
+	local timerLabel = nextWeatherGui:WaitForChild("Timer")
 	
-	local hud = PlayerGui:FindFirstChild("HUD")
-	local rightBuffs = hud and hud:FindFirstChild("RightBuffs")
-	local nextWeatherGui = rightBuffs and rightBuffs:FindFirstChild("NextEvent")
-	local timerLabel = nextWeatherGui and nextWeatherGui:FindFirstChild("Timer")
-
+	local function FormatTime(seconds)
+		local m = math.floor(seconds / 60)
+		local s = math.floor(seconds % 60)
+		return string.format("%02d:%02d", m, s)
+	end
+	
 	local nextWeatherTime = ReplicatedStorage:FindFirstChild("NextWeatherTime")
 	local activeWeathers = ReplicatedStorage:FindFirstChild("ActiveWeathers")
 	local activeEvents = ReplicatedStorage:FindFirstChild("ActiveEvents")
-
-	if not (nextWeatherGui and timerLabel and nextWeatherTime and activeWeathers and activeEvents) then
-		warn("[NextWeatherController] Weather UI/state not found, skipping.")
+	
+	if not (nextWeatherTime and activeWeathers and activeEvents) then
+		warn("[NextWeatherController] Weather instances not found in ReplicatedStorage, disabling weather UI.")
+		pcall(function()
+			nextWeatherGui.Visible = false
+		end)
 		return
 	end
 	
@@ -46,7 +51,7 @@ function NextWeatherController:Start()
 		
 		if timeVal > 0 and #activeWeathers:GetChildren() == 0 and not hasSpecialEvent then
 			nextWeatherGui.Visible = true
-			timerLabel.Text = FormatUtil.FormatTimeMMSS(timeVal)
+			timerLabel.Text = FormatTime(timeVal)
 		else
 			nextWeatherGui.Visible = false
 		end

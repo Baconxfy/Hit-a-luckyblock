@@ -97,10 +97,6 @@ local function HideAll(PlotModel: Model)
 	end
 end
 
--- FIX: ShowFloor previously showed ALL slots on the floor, making per-slot ShowSlot calls in
--- LoadPlot redundant and incorrect (slots not saved in profile data would still appear).
--- Now ShowFloor only reveals the floor's structural/Extra parts; individual slots must be
--- shown explicitly via ShowSlot.
 local function ShowFloor(PlotModel: Model, FloorName: string)
 	local plotData = PlotsDictionary[PlotModel]
 	if not plotData then return end
@@ -109,6 +105,12 @@ local function ShowFloor(PlotModel: Model, FloorName: string)
 	if not floorData then return end
 
 	setSlotVisible(floorData.Extra, true)
+	for slotName in pairs(SLOTS_SET) do
+		local slotData = floorData[slotName]
+		if slotData then
+			setSlotVisible(slotData, true)
+		end
+	end
 end
 
 local function ShowSlot(PlotModel: Model, FloorName: string, SlotName: string)

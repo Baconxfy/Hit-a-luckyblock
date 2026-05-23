@@ -1,2 +1,0 @@
--- Plot and gameplay server logic runs through ServerScriptService.Server (Framework services).
--- This script is kept only if your place still references it; it intentionally does nothing.

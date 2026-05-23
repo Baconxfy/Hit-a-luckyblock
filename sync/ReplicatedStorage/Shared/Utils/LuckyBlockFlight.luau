@@ -1,6 +1,6 @@
 --!strict
 -- LuckyBlockFlight (ModuleScript)
--- ReplicatedStorage.Shared.Utils.LuckyBlockFlight
+-- Recommended location: ReplicatedStorage.Modules.LuckyBlockFlight
 --
 -- Animates a BasePart from a start point to a target with a focus on a
 -- REALISTIC feel across all three phases:

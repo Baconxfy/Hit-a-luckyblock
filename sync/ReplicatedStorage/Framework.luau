@@ -17,16 +17,12 @@ local sv = cfgFolder:WaitForChild("Shared") :: StringValue
 local ConfigCodec = require(RS.Shared.Utils.ConfigCodec :: ModuleScript)
 local ClientConfig = ConfigCodec.Decode(HttpService:JSONDecode(sv.Value))
 
-
 local function buildServiceMap(services)
 	local t = {}
-	for _, child in ipairs(services) do
-		local name = child.Name
-		if not name:find(" ")
-			and not child:IsA("LuaSourceContainer")
-			and not child:IsA("LocalizationTable")
-			and not child:IsA("Folder") then
-			t[name] = child
+	for _, n in ipairs(services) do
+		local ok, s = pcall(game.GetService, game, n.Name)
+		if ok and s then
+			t[n.Name] = s
 		end
 	end
 	return t
@@ -182,12 +178,11 @@ local function buildClientServiceProxy(serviceName: string)
 				local encArgs, n = encodeArgs(...)
 
 				local id = HttpService:GenerateGUID(false)
-				
 				local ok, val = Promise.new(function(resolve, reject)
 					pending[id] = { resolve = resolve, reject = reject }
 					req:FireServer(method, id, table.unpack(encArgs, 1, n))
 				end):await()
-				return ok, val
+				return val, ok
 			end
 		end,
 	})
@@ -211,9 +206,10 @@ function Framework:GetService(name: string)
 	return proxy
 end
 
-
 function Framework:GetController(name: string)
-	return _controllers[name]
+	local inst = _controllers[name]
+	assert(inst, "No controller: " .. name)
+	return inst
 end
 
 function Framework._register(kind: "Service" | "Controller", obj: any)

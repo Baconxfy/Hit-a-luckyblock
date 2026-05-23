@@ -12,13 +12,13 @@ local function tb(c)
 		return nil
 	end
 
-	local cap = tonumber(c.capacity) or tonumber(c.burst) or tonumber(c.Calls)
+	local cap = tonumber(c.capacity) or tonumber(c.burst)
 	if not cap or cap <= 0 then
-		return { capacity = 0, refill = 0, every = tonumber(c.every) or tonumber(c.Window) or 1 }
+		return { capacity = 0, refill = 0, every = tonumber(c.every) or 1 }
 	end
 
 	local refill = tonumber(c.refill) or cap
-	local every = tonumber(c.every) or tonumber(c.Window) or 1
+	local every = tonumber(c.every) or 1
 	if refill < 0 then
 		refill = 0
 	end
@@ -44,10 +44,9 @@ function RateConfig.forService(serviceName, method)
 	local exact = group[("%s/Client/%s"):format(serviceName, method)]
 	local svcAllClient = group[("%s/Client/*"):format(serviceName)]
 	local svcAll = group[("%s/*"):format(serviceName)]
-	local svcDirect = group[serviceName]
 	local any = group["*"]
 
-	return tb(exact) or tb(svcAllClient) or tb(svcAll) or tb(svcDirect) or tb(any) or RateConfig.default()
+	return tb(exact) or tb(svcAllClient) or tb(svcAll) or tb(any) or RateConfig.default()
 end
 
 return RateConfig

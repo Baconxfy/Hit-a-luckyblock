@@ -52,7 +52,9 @@ local function ensure(parent: Instance, className: string, name: string): Instan
 	return o
 end
 
-
+-- ============================================================
+-- Mirror shared config to clients through a JSON-safe StringValue.
+-- ============================================================
 
 do
 	local cfgFolder = ensure(RS, "Folder", "FrameworkConfig")
@@ -66,17 +68,11 @@ do
 	sv.Value = HttpService:JSONEncode(ConfigCodec.Encode(SharedCfg))
 end
 
-
 local function buildServiceMap(services)
 	local t = {}
-	for _, child in ipairs(services) do
-		local name = child.Name
-		if not name:find(" ")
-			and not child:IsA("LuaSourceContainer")
-			and not child:IsA("LocalizationTable")
-			and not child:IsA("Folder") then
-			t[name] = child
-		end
+	for _, n in ipairs(services) do
+		local ok, s = pcall(game.GetService, game, n.Name)
+		if ok and s then t[n.Name] = s end
 	end
 	return t
 end
@@ -380,7 +376,7 @@ local function buildServerControllerProxy(ctrlName: string)
 		local enc = table.create(raw.n)
 		for i = 1, raw.n do
 			local value = raw[i]
-			enc[i] = if typeof(value) == "Instance" then value else Marshal.Encode(value)
+			enc[i] = Marshal.Encode(value)
 		end
 		return enc, raw.n
 	end

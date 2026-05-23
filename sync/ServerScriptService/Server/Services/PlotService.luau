@@ -1,280 +1,210 @@
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Framework = require(ReplicatedStorage:WaitForChild("Framework"))
-
+local Framework = require(game:GetService("ReplicatedStorage"):WaitForChild("Framework"))
 local PlotService = Framework:CreateService("PlotService")
 
-local PlotVisibilityUtil = Framework.Utils.PlotVisibilityUtil
-local FormatUtil = Framework.Utils.FormatUtil
+local Players = game:GetService("Players")
+local ServerScriptService = game:GetService("ServerScriptService")
 
-local function findFrame(gui: Instance?): Frame?
-	if not gui then
-		return nil
-	end
-
-	return gui:FindFirstChildOfClass("Frame")
-end
-
-local function setTextIfExists(parent: Instance?, name: string, text: string)
-	if not parent then
-		return
-	end
-
-	local label = parent:FindFirstChild(name)
-
-	if label and label:IsA("TextLabel") then
-		label.Text = text
-	end
-end
-
-local function setVisibleIfExists(parent: Instance?, name: string, visible: boolean)
-	if not parent then
-		return
-	end
-
-	local object = parent:FindFirstChild(name)
-
-	if object and object:IsA("GuiObject") then
-		object.Visible = visible
-	end
+local function FormatNumberWithCommas(number)
+	local _, _, minus, int, fraction = tostring(number):find('([-]?)(%d+)([.]?%d*)')
+	int = int:reverse():gsub("(%d%d%d)", "%1,")
+	return minus .. int:reverse():gsub("^,", "") .. fraction
 end
 
 function PlotService:Initialize()
-	self.PlotVisibilityUtil = PlotVisibilityUtil
-	self.FormatUtil = FormatUtil
-	self.DataService = Framework:GetService("DataService")
-
+	self.PlotVisibilityUtil = require(ServerScriptService.Server.Utils.PlotVisibilityUtil)
+	
 	self._PlotsOwner = {}
 	self._PlayersPlot = {}
-
+	
 	self.PlotsFolder = workspace:WaitForChild("Plots")
-
+	
 	for _, plotModel in ipairs(self.PlotsFolder:GetChildren()) do
-		if plotModel:IsA("Model") then
-			task.spawn(function()
-				self:ResetPlot(plotModel)
-			end)
-		end
+		self._PlotsOwner[plotModel] = nil
+		task.spawn(function() self:ResetPlot(plotModel) end)
 	end
 end
 
 function PlotService:Start()
-	Players.PlayerAdded:Connect(function(player)
-		task.spawn(function()
-			self:AssignPlot(player)
-		end)
+	self.DataService = Framework:GetService("DataService")
+	
+	Players.PlayerAdded:Connect(function(player: Player) 
+		self:AssignPlot(player)
 	end)
-
-	for _, player in ipairs(Players:GetPlayers()) do
-		task.spawn(function()
-			self:AssignPlot(player)
-		end)
-	end
-
-	Players.PlayerRemoving:Connect(function(player)
+	
+	Players.PlayerRemoving:Connect(function(player: Player)
 		self:ReleasePlot(player)
 	end)
 end
 
-function PlotService:_getCarpetFrame(plotModel: Model): Frame?
-	local floor1 = plotModel:FindFirstChild("Floor1")
+function PlotService:ResetPlot(PlotModel: Model)
+	self.PlotVisibilityUtil.HideAll(PlotModel)
 
-	if not floor1 then
-		return nil
-	end
+	local Floor1 = PlotModel:WaitForChild("Floor1")
 
-	local carpetPart = floor1:FindFirstChild("Carpet")
-
-	if not carpetPart then
-		return nil
-	end
-
-	local carpetAttachment = carpetPart:FindFirstChildOfClass("Attachment")
-
-	if not carpetAttachment then
-		return nil
-	end
-
-	local cashMultiGui = carpetAttachment:FindFirstChildOfClass("BillboardGui")
-
-	return findFrame(cashMultiGui)
-end
-
-function PlotService:_getSignFrame(plotModel: Model): Frame?
-	local plotSign = plotModel:FindFirstChild("PlotSign")
-
-	if not plotSign then
-		return nil
-	end
-
-	local frontPart = plotSign:FindFirstChild("FrontPart")
-
-	if not frontPart then
-		return nil
-	end
-
-	local surfaceGui = frontPart:FindFirstChildOfClass("SurfaceGui")
-
-	return findFrame(surfaceGui)
-end
-
-function PlotService:ResetPlot(plotModel: Model)
-	self.PlotVisibilityUtil.HideAll(plotModel)
-
-	local carpetFrame = self:_getCarpetFrame(plotModel)
-
-	setVisibleIfExists(carpetFrame, "Name", false)
-	setVisibleIfExists(carpetFrame, "Cost", false)
-
-	local signFrame = self:_getSignFrame(plotModel)
-
-	setVisibleIfExists(signFrame, "CashIcon", false)
-	setVisibleIfExists(signFrame, "LikeIcon", false)
-
-	local pfpHolder = signFrame and signFrame:FindFirstChild("PfpHolder")
-
-	if pfpHolder and pfpHolder:IsA("ImageLabel") then
-		pfpHolder.Image = ""
-	end
-
-	setTextIfExists(signFrame, "Username", "")
-	setTextIfExists(signFrame, "DisplayName", "")
-	setTextIfExists(signFrame, "Likes", "")
-	setTextIfExists(signFrame, "Money", "")
-
-	local ownerValue = plotModel:FindFirstChild("Owner")
-
-	if ownerValue then
-		ownerValue:Destroy()
-	end
-end
-
-function PlotService:LoadPlot(plotModel: Model, player: Player)
-	local existingOwner = plotModel:FindFirstChild("Owner")
-
-	if existingOwner then
-		existingOwner:Destroy()
-	end
-
-	local ownerValue = Instance.new("ObjectValue")
-	ownerValue.Name = "Owner"
-	ownerValue.Value = player
-	ownerValue.Parent = plotModel
-
-	if not player:GetAttribute("DataLoaded") then
-		player:GetAttributeChangedSignal("DataLoaded"):Wait()
-	end
-
-	if not player.Parent then
-		return
-	end
-
-	local profile = self.DataService:GetProfile(player)
-
-	if not profile then
-		return
-	end
-
-	local rebirthsValue = profile.Data.Rebirths or 0
-	local plotData = profile.Data.Plot
-
-	if plotData then
-		local floor2 = plotData.Floor2
-
-		if floor2 then
-			self.PlotVisibilityUtil.ShowFloor(plotModel, "Floor2")
-
-			for _, slotName in ipairs(floor2) do
-				self.PlotVisibilityUtil.ShowSlot(plotModel, "Floor2", slotName)
-			end
-		end
-
-		local floor3 = plotData.Floor3
-
-		if floor3 then
-			self.PlotVisibilityUtil.ShowFloor(plotModel, "Floor3")
-
-			for _, slotName in ipairs(floor3) do
-				self.PlotVisibilityUtil.ShowSlot(plotModel, "Floor3", slotName)
+	local CarpetPart = Floor1:WaitForChild("Carpet")
+	local CarpetAttachment = CarpetPart:FindFirstChildOfClass("Attachment")
+	if CarpetAttachment then
+		local CashMultiGui = CarpetAttachment:FindFirstChildOfClass("BillboardGui")
+		if CashMultiGui then
+			local Frame = CashMultiGui:FindFirstChildOfClass("Frame")
+			if Frame then
+				local CostLabel = Frame:FindFirstChild("Cost")
+				local NameLabel = Frame:FindFirstChild("Name")
+				if NameLabel then NameLabel.Visible = false end
+				if CostLabel then CostLabel.Visible = false end
 			end
 		end
 	end
 
-	local carpetFrame = self:_getCarpetFrame(plotModel)
-
-	setVisibleIfExists(carpetFrame, "Name", true)
-
-	local costLabel = carpetFrame and carpetFrame:FindFirstChild("Cost")
-
-	if costLabel and costLabel:IsA("TextLabel") then
-		costLabel.Text = self.FormatUtil.FormatMultiplier(rebirthsValue)
-		costLabel.Visible = true
-	end
-
-	local signFrame = self:_getSignFrame(plotModel)
-
-	setVisibleIfExists(signFrame, "CashIcon", false)
-	setVisibleIfExists(signFrame, "LikeIcon", false)
-
-	local pfpHolder = signFrame and signFrame:FindFirstChild("PfpHolder")
-
-	if pfpHolder and pfpHolder:IsA("ImageLabel") then
-		local thumbOk, profileImage = pcall(function()
-			return Players:GetUserThumbnailAsync(
-				player.UserId,
-				Enum.ThumbnailType.AvatarBust,
-				Enum.ThumbnailSize.Size420x420
-			)
-		end)
-
-		if thumbOk then
-			pfpHolder.Image = profileImage
+	local PlotSign = PlotModel:WaitForChild("PlotSign")
+	local FrontPart = PlotSign:FindFirstChild("FrontPart")
+	if FrontPart then
+		local SurfaceGui = FrontPart:FindFirstChildOfClass("SurfaceGui")
+		if SurfaceGui then
+			local Frame = SurfaceGui:FindFirstChildOfClass("Frame")
+			if Frame then
+				local PfpHolder = Frame:FindFirstChild("PfpHolder")
+				local CashIcon = Frame:FindFirstChild("CashIcon")
+				local LikeIcon = Frame:FindFirstChild("LikeIcon")
+				local UsernameLabel = Frame:FindFirstChild("Username")
+				local DisplayNameLabel = Frame:FindFirstChild("DisplayName")
+				local LikesLabel = Frame:FindFirstChild("Likes")
+				local MoneyLabel = Frame:FindFirstChild("Money")
+				
+				if CashIcon then CashIcon.Visible = false end
+				if LikeIcon then LikeIcon.Visible = false end
+				if PfpHolder then PfpHolder.Image = "" end
+				if UsernameLabel then UsernameLabel.Text = "" end
+				if DisplayNameLabel then DisplayNameLabel.Text = "" end
+				if MoneyLabel then MoneyLabel.Text = "" end
+				if LikesLabel then LikesLabel.Text = "" end
+			end
 		end
 	end
 
-	setTextIfExists(signFrame, "Username", "@" .. player.Name)
-	setTextIfExists(signFrame, "DisplayName", player.DisplayName)
-	setTextIfExists(signFrame, "Money", "")
-	setTextIfExists(signFrame, "Likes", "")
-
-	local character = player.Character or player.CharacterAdded:Wait()
-	local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-	local playerSpawn = plotModel:WaitForChild("PlayerSpawn")
-
-	humanoidRootPart.CFrame = playerSpawn.CFrame
-end
-
-function PlotService:GetPlotOwner(plotModel: Model): Player?
-	return self._PlotsOwner[plotModel]
-end
-
-function PlotService:GetPlayerPlot(player: Player): Model?
-	return self._PlayersPlot[player]
-end
-
-function PlotService:AssignPlot(player: Player): Model?
-	local existingPlot = self._PlayersPlot[player]
-
-	if existingPlot then
-		return existingPlot
+	local hasOwner = PlotModel:FindFirstChild("Owner")
+	if hasOwner then
+		hasOwner:Destroy()
 	end
+end
+
+function PlotService:LoadPlot(PlotModel: Model, Player: Player)
+	local OwnerValue = Instance.new("ObjectValue")
+	OwnerValue.Name = "Owner"
+	OwnerValue.Value = Player
+	OwnerValue.Parent = PlotModel
+
+	Player:GetAttributeChangedSignal("DataLoaded"):Wait()
+
+	if not Player.Parent then return end
+
+	local RebirthsValue = self.DataService:GetData(Player.UserId, "Rebirths") or 0
+	local PlotData = self.DataService:GetData(Player.UserId, "Plot") or {}
+
+	local Floor2 = PlotData.Floor2
+	if Floor2 then
+		self.PlotVisibilityUtil.ShowFloor(PlotModel, "Floor2")
+		for slotName, slotVal in pairs(Floor2) do
+			if typeof(slotVal) == "string" then
+				self.PlotVisibilityUtil.ShowSlot(PlotModel, "Floor2", slotName)
+			end
+		end
+
+		local Floor3 = PlotData.Floor3
+		if Floor3 then
+			self.PlotVisibilityUtil.ShowFloor(PlotModel, "Floor3")
+			for slotName, slotVal in pairs(Floor3) do
+				if typeof(slotVal) == "string" then
+					self.PlotVisibilityUtil.ShowSlot(PlotModel, "Floor3", slotName)
+				end
+			end
+		end
+	end
+	
+	local Floor1 = PlotModel:WaitForChild("Floor1")
+	
+	local CarpetPart = Floor1:WaitForChild("Carpet")
+	local CarpetAttachment = CarpetPart:FindFirstChildOfClass("Attachment")
+	if CarpetAttachment then
+		local CashMultiGui = CarpetAttachment:FindFirstChildOfClass("BillboardGui")
+		if CashMultiGui then
+			local Frame = CashMultiGui:FindFirstChildOfClass("Frame")
+			if Frame then
+				local CostLabel = Frame:FindFirstChild("Cost")
+				local NameLabel = Frame:FindFirstChild("Name")
+
+				if NameLabel then NameLabel.Visible = true end
+				if CostLabel then 
+					CostLabel.Text = "x" .. FormatNumberWithCommas(RebirthsValue)
+					CostLabel.Visible = true 
+				end
+			end
+		end
+	end
+	
+	local PlotSign = PlotModel:WaitForChild("PlotSign")
+	local FrontPart = PlotSign:FindFirstChild("FrontPart")
+	if FrontPart then
+		local SurfaceGui = FrontPart:FindFirstChildOfClass("SurfaceGui")
+		if SurfaceGui then
+			local Frame = SurfaceGui:FindFirstChildOfClass("Frame")
+			if Frame then
+				local PfpHolder = Frame:FindFirstChild("PfpHolder")
+				local CashIcon = Frame:FindFirstChild("CashIcon")
+				local LikeIcon = Frame:FindFirstChild("LikeIcon")
+				
+				local UsernameLabel = Frame:FindFirstChild("Username")
+				local DisplayNameLabel = Frame:FindFirstChild("DisplayName")
+				local LikesLabel = Frame:FindFirstChild("Likes")
+				local MoneyLabel = Frame:FindFirstChild("Money")
+				
+				if CashIcon then CashIcon.Visible = false end
+				if LikeIcon then LikeIcon.Visible = false end
+				
+				local workProfile, profileImage = pcall(function()
+					return Players:GetUserThumbnailAsync(Player.UserId, Enum.ThumbnailType.AvatarBust, Enum.ThumbnailSize.Size420x420)
+				end)
+				
+				if workProfile and PfpHolder then
+					PfpHolder.Image = profileImage
+				end
+				
+				if UsernameLabel then UsernameLabel.Text = "@" .. Player.Name end
+				if DisplayNameLabel then DisplayNameLabel.Text = Player.DisplayName end
+				if MoneyLabel then MoneyLabel.Text = "$TotalMoney/s" end
+				if LikesLabel then LikesLabel.Text = "KeepLikes?" end
+			end
+		end
+	end
+	
+	local Character = Player.Character or Player.CharacterAdded:Wait()
+	local HRP = Character:WaitForChild("HumanoidRootPart")
+	
+	local PlayerSpawn = PlotModel:WaitForChild("PlayerSpawn")
+	HRP.CFrame = PlayerSpawn.CFrame
+end
+
+function PlotService:GetPlotOwner(PlotModel: Model): Player?
+	return self._PlotsOwner[PlotModel]
+end
+
+function PlotService:GetPlayerPlot(Player: Player): Model?
+	return self._PlayersPlot[Player]
+end
+
+function PlotService:AssignPlot(Player: Player): Model?
+	local hasPlot = self._PlayersPlot[Player]
+	if hasPlot then return hasPlot end
 
 	local selectedPlot = nil
 
 	while not selectedPlot do
-		if not player.Parent then
-			return nil
-		end
+		if not Player.Parent then return nil end
 
-		for _, plotModel in ipairs(self.PlotsFolder:GetChildren()) do
-			if not plotModel:IsA("Model") then
-				continue
-			end
-
+		for _, plotModel in pairs(self.PlotsFolder:GetChildren()) do
 			if not self._PlotsOwner[plotModel] then
-				self._PlotsOwner[plotModel] = player
-				self._PlayersPlot[player] = plotModel
+				self._PlotsOwner[plotModel] = Player
+				self._PlayersPlot[Player] = plotModel
 				selectedPlot = plotModel
 				break
 			end
@@ -285,44 +215,25 @@ function PlotService:AssignPlot(player: Player): Model?
 		end
 	end
 
-	local oldPlotValue = player:FindFirstChild("Plot")
-
-	if oldPlotValue then
-		oldPlotValue:Destroy()
-	end
-
-	local plotValue = Instance.new("ObjectValue")
-	plotValue.Name = "Plot"
-	plotValue.Value = selectedPlot
-	plotValue.Parent = player
+	local PlotValue = Instance.new("ObjectValue")
+	PlotValue.Name = "Plot"
+	PlotValue.Value = selectedPlot
+	PlotValue.Parent = Player
 
 	task.spawn(function()
-		self:LoadPlot(selectedPlot, player)
+		self:LoadPlot(selectedPlot, Player)
 	end)
 
 	return selectedPlot
 end
 
-function PlotService:ReleasePlot(player: Player)
-	local plotModel = self._PlayersPlot[player]
-
-	self._PlayersPlot[player] = nil
-
-	local plotValue = player:FindFirstChild("Plot")
-
-	if plotValue then
-		plotValue:Destroy()
+function PlotService:ReleasePlot(Player: Player)
+	local plotModel = self._PlayersPlot[Player]
+	if plotModel then
+		self._PlotsOwner[plotModel] = nil
+		self._PlayersPlot[Player] = nil
+		task.defer(function() self:ResetPlot(plotModel) end)
 	end
-
-	if not plotModel then
-		return
-	end
-
-	self._PlotsOwner[plotModel] = nil
-
-	task.defer(function()
-		self:ResetPlot(plotModel)
-	end)
 end
 
 return PlotService
